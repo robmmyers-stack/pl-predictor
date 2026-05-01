@@ -58,10 +58,10 @@ with tab1:
 with tab2:
     st.write("Enter fixtures one per line as: Home Team,Away Team,HomeInjuries,AwayInjuries")
     fixtures_input = st.text_area("Fixtures", "Arsenal,Chelsea,0,0\nLiverpool,Man City,1,2")
+
     if st.button("Predict All", key="batch"):
+        st.session_state.batch_results = []
         lines = fixtures_input.strip().split("\n")
-        results = []
-        parlay_prob = 1.0
         for line in lines:
             try:
                 parts = [x.strip() for x in line.split(",")]
@@ -70,10 +70,51 @@ with tab2:
                 away_inj = int(parts[3]) if len(parts) > 3 else 0
                 result, probs = predict(home, away, home_inj, away_inj)
                 confidence = max(probs.values())
-                parlay_prob *= confidence
-                results.append({"Home": home, "Away": away, "H Inj": home_inj, "A Inj": away_inj, "Prediction": result, "Confidence": f"{confidence:.0%}"})
+                st.session_state.batch_results.append({
+                    "label": f"{home} vs {away}",
+                    "Home": home, "Away": away,
+                    "H Inj": home_inj, "A Inj": away_inj,
+                    "Prediction": result,
+                    "Confidence": confidence
+                })
             except Exception as e:
-                results.append({"Home": line, "Away": "", "H Inj": "", "A Inj": "", "Prediction": f"Error: {e}", "Confidence": ""})
-        st.dataframe(pd.DataFrame(results), use_container_width=True)
+                st.session_state.batch_results.append({
+                    "label": line, "Home": line, "Away": "", "H Inj": "", "A Inj": "",
+                    "Prediction": f"Error: {e}", "Confidence": 0.0
+                })
+
+    if "batch_results" in st.session_state and st.session_state.batch_results:
+        results = st.session_state.batch_results
+
+        display_df = pd.DataFrame([{
+            "Home": r["Home"], "Away": r["Away"],
+            "H Inj": r["H Inj"], "A Inj": r["A Inj"],
+            "Prediction": r["Prediction"],
+            "Confidence": f"{r['Confidence']:.0%}"
+        } for r in results])
+        st.dataframe(display_df, use_container_width=True)
+
         st.markdown("---")
-        st.metric(label=f"Parlay Probability (all {len(results)} correct)", value=f"{parlay_prob:.1%}")
+        st.subheader("Parlay Calculator")
+        st.write("Select matches to include in your parlay:")
+
+        selected = []
+        for i, r in enumerate(results):
+            if r["Confidence"] > 0:
+                checked = st.checkbox(
+                    f"{r['Home']} vs {r['Away']} — {r['Prediction']} ({r['Confidence']:.0%})",
+                    key=f"parlay_{i}"
+                )
+                if checked:
+                    selected.append(r["Confidence"])
+
+        if selected:
+            parlay_prob = 1.0
+            for p in selected:
+                parlay_prob *= p
+            st.metric(
+                label=f"Parlay Probability ({len(selected)} match{'es' if len(selected) > 1 else ''})",
+                value=f"{parlay_prob:.1%}"
+            )
+        else:
+            st.info("Check matches above to calculate parlay probability.")
